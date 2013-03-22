@@ -1,5 +1,4 @@
-/*
-  MachineModel.java
+/*  MachineModel.java
 
   A class to model a 3-axis machine.
 
@@ -25,11 +24,13 @@
 
 package replicatorg.machine.model;
 
+import java.io.File;
 import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.Set;
 import java.util.Vector;
 import java.util.concurrent.atomic.AtomicReference;
+import replicatorg.machine.*;
 
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
@@ -38,6 +39,13 @@ import replicatorg.app.Base;
 import replicatorg.app.tools.XML;
 import replicatorg.util.Point5d;
 
+/**
+ * Loads a machine model from XML, and contains data related to that XML setup for the 
+ * machine model, and a lot (but not all) of machine state values
+ * 
+ * @author unknows
+ *
+ */
 public class MachineModel
 {
 	//our xml config info
@@ -54,9 +62,10 @@ public class MachineModel
 	private Set<AxisId> axes = EnumSet.noneOf(AxisId.class);
 	
 	//feedrate information
-	private Point5d maximumFeedrates;
+	private Point5d maximumFeedrateSteps;
 	private Point5d homingFeedrates;
 	private Point5d stepsPerMM;
+    private Point5d timeOut;
 	
 	//our drive status
 	protected boolean drivesEnabled = true;
@@ -69,9 +78,22 @@ public class MachineModel
 
 	//our clamp models	
 	protected Vector<ClampModel> clamps;
+
+	//our wipe models @Noah
+	protected  Vector<WipeModel> wipes = new Vector<WipeModel>();
+	
+	// our machine-specific start & end gcode
+	protected File dualstartBookendCode = null;
+	protected File startBookendCode = null;
+	protected File endBookendCode = null;
 	
 	// our build volume
 	protected BuildVolume buildVolume;
+        
+    // nozzle offsets
+    protected ToolheadsOffset toolheadsOfffsets;
+	
+	private MachineType machineType = null;
 
 	/*************************************
 	*  Creates the model object.
@@ -81,28 +103,135 @@ public class MachineModel
 		clamps = new Vector<ClampModel>();
 		tools = new Vector<ToolModel>();
 		buildVolume = new BuildVolume(100,100,100); // preload it with the default values
+                toolheadsOfffsets = new ToolheadsOffset(0.0, 0.0, 0.0);
 		
 		//currentPosition = new Point3d();
 		minimum = new Point5d();
 		maximum = new Point5d();
-		maximumFeedrates = new Point5d();
+		maximumFeedrateSteps = new Point5d();
 		homingFeedrates = new Point5d();
+		timeOut = new Point5d();
 		stepsPerMM = new Point5d(1, 1, 1, 1, 1); //use ones, because we divide by this!
 		
 		currentTool.set(nullTool);
 	}
+	
 	
 	//load data from xml config
 	public void loadXML(Node node)
 	{
 		xml = node;
 		
+		parseType();
 		parseAxes();
 		parseClamps();
 		parseTools();
 		parseBuildVolume();
-		
+		parseWipes();
+		parseExclusion();
+		parseGCode();
+		parseOffsets();
 	}
+	
+
+	private void parseType() {
+		NodeList kids = xml.getChildNodes();
+
+		for (int j = 0; j < kids.getLength(); j++) {
+			Node kid = kids.item(j);
+
+			if (kid.getNodeName().equals("name")) {
+				String name = kid.getFirstChild().getNodeValue().trim();
+				if(name.startsWith("Replicator 2"))
+					machineType = MachineType.REPLICATOR_2;
+				if(name.startsWith("The Replicator"))
+					machineType = MachineType.THE_REPLICATOR;
+				else if(name.startsWith("Thingomatic"))
+					machineType = MachineType.THINGOMATIC;
+				else if(name.startsWith("Cupcake"))
+					machineType = MachineType.CUPCAKE;
+				return;
+			}
+		}
+	}
+	
+	private void parseExclusion()
+	{
+		if(XML.hasChildNode(xml, "exclusion"))
+		{
+			Node exclusionNode = XML.getChildNodeByName(xml, "wipes");
+			NodeList exclusionKids = exclusionNode.getChildNodes();
+			for (int i=0; i<exclusionKids.getLength(); i++)
+			{
+				Node exclusionZoneNode = exclusionKids.item(i);
+				
+				if (exclusionZoneNode.getNodeName().equals("wipe"))
+				{
+					WipeModel wipe = new WipeModel(exclusionZoneNode);
+					wipes.add(wipe);
+				}
+			}
+		}
+	}
+	
+	
+	private void parseWipes()
+	{
+		if(XML.hasChildNode(xml, "wipes"))
+		{
+			Node wipesNode = XML.getChildNodeByName(xml, "wipes");
+			
+			//look through the axes.
+			NodeList wipesKids = wipesNode.getChildNodes();
+			for (int i=0; i<wipesKids.getLength(); i++)
+			{
+				Node wipeNode = wipesKids.item(i);
+				
+				if (wipeNode.getNodeName().equals("wipe"))
+				{
+					WipeModel wipe = new WipeModel(wipeNode);
+					wipes.add(wipe);
+				}
+			}
+		}
+	}
+        
+        private void parseOffsets()
+	{
+		if(XML.hasChildNode(xml, "offsets"))
+		{
+			Node offsetsNode = XML.getChildNodeByName(xml, "offsets");
+			
+			//look through the axes.
+			NodeList offsetsKids = offsetsNode.getChildNodes();
+			for (int i=0; i<offsetsKids.getLength(); i++)
+			{
+				Node offsetNode = offsetsKids.item(i);
+				
+				if (offsetNode.getNodeName().equals("offset"))
+				{
+                                    double xNozzleOffset = 0.0;
+                                    double yNozzleOffset = 0.0;
+                                    double zNozzleOffset = 0.0;
+                                    
+                                    try {
+                                            xNozzleOffset = Double.parseDouble(XML.getAttributeValue(offsetNode, "xNozzle"));
+                                    } catch (Exception e) {}
+                                        try {
+                                            yNozzleOffset = Double.parseDouble(XML.getAttributeValue(offsetNode, "yNozzle"));
+                                    } catch (Exception e) {}
+                                        try {
+                                            zNozzleOffset = Double.parseDouble(XML.getAttributeValue(offsetNode, "zNozzle"));
+                                    } catch (Exception e) {}
+                                        
+                                        toolheadsOfffsets.setX(xNozzleOffset);
+                                        toolheadsOfffsets.setY(yNozzleOffset);
+                                        toolheadsOfffsets.setZ(zNozzleOffset);
+				}
+			}
+		}
+	}
+	
 	
 	//load axes configuration
 	private void parseAxes()
@@ -130,6 +259,10 @@ public class MachineModel
 						double homingFeedrate = 0.0;
 						double stepspermm = 1.0;
 						Endstops endstops = Endstops.NONE;
+						// abritrary # of seconds to time out,
+						// can be overriden in .xml for each axis, the max val is all we use currently
+						double defaultTimeout = 20.0;
+						double timeout = 0;
 						//if values are missing, ignore them.
 						try {
 						 	length = Double.parseDouble(XML.getAttributeValue(axis, "length"));
@@ -144,10 +277,16 @@ public class MachineModel
 							homingFeedrate = maxFeedrate;
 						}
 						try {
-						 	String spmm = XML.getAttributeValue(axis, "stepspermm");
-						 	if (spmm == null) spmm = XML.getAttributeValue(axis, "scale"); // Backwards compatibility
-						 	stepspermm = Double.parseDouble(spmm);
+							String spmm = XML.getAttributeValue(axis, "stepspermm");
+							if (spmm == null) spmm = XML.getAttributeValue(axis, "scale"); // Backwards compatibility
+							stepspermm = Double.parseDouble(spmm);
 						} catch (Exception e) {}
+						try {
+						        timeout = Double.parseDouble(XML.getAttributeValue(axis, "timeout"));
+						} catch (Exception e) {
+							// if no timeout is specified, used the default
+						       timeout = defaultTimeout;
+						}
 						String endstopStr = XML.getAttributeValue(axis, "endstops");
 						if (endstopStr != null) {
 							try {
@@ -157,16 +296,18 @@ public class MachineModel
 							}
 						}
 						maximum.setAxis(id,length);
-						maximumFeedrates.setAxis(id,maxFeedrate);
+						maximumFeedrateSteps.setAxis(id,maxFeedrate);
 						homingFeedrates.setAxis(id,homingFeedrate);
 						stepsPerMM.setAxis(id,stepspermm);
+						timeOut.setAxis(id,timeout);
 						this.endstops.put(id, endstops);
 						Base.logger.fine("Loaded axis " + id.name()
 								+ ": (Length: " + length 
 								+ "mm, max feedrate: " + maxFeedrate 
 								+ " mm/min, homing feedrate: " + homingFeedrate
-								+ " mm/min, scale: " + 
-								stepspermm + " steps/mm)");
+								+ " mm/min, scale: " + stepspermm + " steps/mm"
+								 + "seconds, timeout: " + timeout + ")");
+						
 					} catch (IllegalArgumentException iae) {
 						// Unrecognized axis!
 						Base.logger.severe("Unrecognized axis "+idStr+" found in machine descriptor!");
@@ -279,6 +420,26 @@ public class MachineModel
 		}
 		
 	}
+	
+	private void parseGCode()
+	{
+		if(XML.hasChildNode(xml, "bookend"))
+		{
+			Node bookend = XML.getChildNodeByName(xml, "bookend");
+			String dualstartLocation = XML.getAttributeValue(bookend, "dualstart");
+			String startLocation = XML.getAttributeValue(bookend, "start");
+			String endLocation = XML.getAttributeValue(bookend, "end");			
+			if(dualstartLocation != null) 
+				dualstartBookendCode = Base.getApplicationFile(dualstartLocation);
+			if(startLocation != null) 
+				startBookendCode = Base.getApplicationFile(startLocation);
+			if(endLocation != null) 
+				endBookendCode = Base.getApplicationFile(endLocation);
+		}
+		else {
+			Base.logger.severe("No bookend metadata specified for this machine");
+		}
+	}
 
 	/*************************************
 	*  Reporting available axes
@@ -309,6 +470,16 @@ public class MachineModel
 	 * Get steps-mm conversion value
 	 */
 	public Point5d getStepsPerMM() { return stepsPerMM; }
+
+	/**
+	 * Get axis lengths
+	 */
+	public Point5d getAxisLengths() { return maximum; }
+        
+        /**
+	 * Get steps-mm conversion value
+	 */
+	public ToolheadsOffset getToolheadsOffsets() { return toolheadsOfffsets; }
 
 	/*************************************
 	*  Convert millimeters to machine steps
@@ -415,10 +586,9 @@ public class MachineModel
 		try {
 			return tools.get(index);
 		} catch (ArrayIndexOutOfBoundsException e) {
-			Base.logger.severe("Cannot get non-existant tool (#" + index + ".");
-			e.printStackTrace();
+			Base.logger.severe("Cannot get nonexistent tool (#" + index + ".");
+			//e.printStackTrace();
 		}
-		
 		return null;
 	}
 	public BuildVolume getBuildVolume()
@@ -430,7 +600,6 @@ public class MachineModel
 	{
 		return tools;
 	}
-
 	public void addTool(ToolModel t)
 	{
 		tools.add(t);
@@ -447,18 +616,64 @@ public class MachineModel
 		}
 	}
 
-  public Point5d getMaximumFeedrates() {
-    return maximumFeedrates;
-  }
-
-  public Point5d getHomingFeedrates() {
-	    return homingFeedrates;
-	  }
+	/// Maximum feedrate in stepper steps/sec
+	public Point5d getMaximumFeedrates() {
+		return maximumFeedrateSteps;
+	}
+	
+	public Point5d getHomingFeedrates() {
+		return homingFeedrates;
+	}
+	  
+	public Point5d getTimeOut() {
+		return timeOut;
+	}
+	  
+	/** returns the endstop configuration for the given axis */
+	public Endstops getEndstops(AxisId axis)
+	{
+		return this.endstops.get(axis);
+	}
   
-  /** returns the endstop configuration for the givin axis */
-  public Endstops getEndstops(AxisId axis)
-  {
-	  return this.endstops.get(axis);
-  }
+	/*************************************
+	*  Wipe functions
+	*************************************/
+	public Vector<WipeModel> getWipes() {
+		return wipes;
+	}
+	
+	public WipeModel getWipeFor(ToolheadAlias tool) {
+		for(WipeModel wm : wipes)
+		{
+			if(wm.getTool() == tool)
+			{
+				return wm;
+			}
+		}
+		return null;
+	}
 
+	/*************************************
+	*  Gcode functions
+	*************************************/
+
+	/// returns the start code filename specified in machines.xml
+	public File getDualstartBookendCode() {
+		return dualstartBookendCode;
+	}
+	
+	/// returns the start code filename specified in machines.xml
+	public File getStartBookendCode() {
+		return startBookendCode;
+	}
+
+	/// returns the end code filename specified in machines.xml
+	public File getEndBookendCode() {
+		return endBookendCode;
+	}
+	
+	public MachineType getMachineType() {
+		return machineType;
+	}
+	
 }

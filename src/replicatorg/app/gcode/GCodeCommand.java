@@ -1,11 +1,12 @@
-package replicatorg.app;
+package replicatorg.app.gcode;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public class GCode {
+public class GCodeCommand {
 
 	// These are the letter codes that we understand
 	static protected char[] codes = { 
@@ -36,7 +37,7 @@ public class GCode {
 	// The set of parameters in this GCode
 	private List<gCodeParameter> parameters;
 
-	public GCode(String command) {
+	public GCodeCommand(String command) {
 		// Copy over the command
 		this.command = new String(command);
 		
@@ -120,4 +121,31 @@ public class GCode {
 		
 		return -1;	// TODO: What do we return if there is no code?
 	}
+	
+//	public Double removeCode(Character searchCode) {
+//		for (Iterator<gCodeParameter> i = parameters.iterator(); i.hasNext();)
+//		{
+//			gCodeParameter gcp = i.next();
+//			if(gcp.code == searchCode)
+//			{
+//				i.remove();
+//				return gcp.value;
+//			}
+//		}
+//		return null;
+//	}
+//	
+//	public void addCode(Character code, Double value)
+//	{
+//		parameters.add(new gCodeParameter(code, value));
+//		command += " ";
+//		command = command.concat(code.toString()).concat(value.toString());
+//	}
+//	
+//	public void addCode(Character code, Integer value)
+//	{
+//		parameters.add(new gCodeParameter(code, ((Number)value).doubleValue()));
+//		command += " ";
+//		command = command.concat(code.toString()).concat(value.toString());
+//	}
 }

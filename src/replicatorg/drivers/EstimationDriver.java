@@ -29,7 +29,7 @@ import javax.vecmath.Point3d;
 
 import replicatorg.util.Point5d;
 
-public class EstimationDriver extends DriverBaseImplementation {
+public class EstimationDriver extends DriverBaseImplementation implements InteractiveDisplay{
 	// build time in milliseconds
 	private double buildTime = 0.0;
 
@@ -78,6 +78,9 @@ public class EstimationDriver extends DriverBaseImplementation {
 		
 		// add it in!
 		if (millis > 0) {
+			//Take into account the time it takes to send a command!
+			millis = millis + 12;
+			
 			buildTime = buildTime + millis;
 //			System.out.println(moveLength + "mm at " + feedrate + " takes " + Math.round(millis) + " millis (" + buildTime + "	total).");
 		}
@@ -94,7 +97,6 @@ public class EstimationDriver extends DriverBaseImplementation {
 	}
 
 	static public String getBuildTimeString(double tempTime, boolean useSeconds) {
-		// System.out.println("build millis = " + tempTime);
 
 		String val = new String();
 
@@ -120,7 +122,7 @@ public class EstimationDriver extends DriverBaseImplementation {
 			// string formatting
 			if (days > 0)
 				val += ", ";
-			val += hours + " hour";
+			val += hours + " hr";
 			if (hours > 1)
 				val += "s";
 		}
@@ -133,7 +135,7 @@ public class EstimationDriver extends DriverBaseImplementation {
 			// string formatting
 			if (days > 0 || hours > 0)
 				val += ", ";
-			val += minutes + " minute";
+			val += minutes + " min";
 			if (minutes > 1)
 				val += "s";
 		}
@@ -147,12 +149,56 @@ public class EstimationDriver extends DriverBaseImplementation {
 				// string formatting
 				if (days > 0 || hours > 0 || minutes > 0)
 					val += ", ";
-				val += seconds + " second";
+				val += seconds + " sec";
 				if (seconds > 1)
 					val += "s";
 			}
 		}
 
 		return val;
+	}
+
+	
+	/*
+	 * From InteractiveDisplay:
+	 * prevents annoying error messages, allows us to account for these pauses in estimation
+	 */
+	@Override
+	public void displayMessage(double seconds, String message,
+			boolean ButtonWait) throws RetryException {
+		// TODO Auto-generated method stub
+		
+	}
+
+	@Override
+	public void userPause(double seconds, boolean resetOnTimeout, int buttonMask)
+			throws RetryException {
+		// TODO Auto-generated method stub
+		
+	}
+
+	@Override
+	public void playSong(int songId) throws RetryException {
+		// TODO Auto-generated method stub
+		
+	}
+
+	@Override
+	public void updateBuildPercent(int percentDone) throws RetryException {
+		// TODO Auto-generated method stub
+		
+	}
+
+	@Override
+	public void sendBuildStartNotification(String string, int i)
+			throws RetryException {
+		// TODO Auto-generated method stub
+		
+	}
+
+	@Override
+	public void sendBuildEndNotification(int endCode) throws RetryException {
+		// TODO Auto-generated method stub
+		
 	}
 }

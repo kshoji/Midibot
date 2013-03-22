@@ -318,7 +318,8 @@ public class MidibotMain implements Receiver {
 		MachineLoader machineLoader = new MachineLoader();
 		String name = Base.preferences.get("machine.name", null);
 		System.out.println("machine.name: " + name);
-		boolean loaded = machineLoader.load(name);
+		MachineInterface machineInterface = machineLoader.getMachineInterface(name);
+		boolean loaded = machineLoader.isLoaded();
 		System.out.println("loaded: " + loaded);
 		if (!loaded) {
 			throw new IllegalStateException("Couldn't load machine.");
@@ -330,7 +331,7 @@ public class MidibotMain implements Receiver {
 			throw new NullPointerException("Couldn't find target port.");
 		}
 		machineLoader.connect(targetPort);
-		return machineLoader.getMachine();
+		return machineInterface;
 	}
 	
 	/**

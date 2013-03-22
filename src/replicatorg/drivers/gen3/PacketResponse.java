@@ -19,7 +19,8 @@ public class PacketResponse {
 		QUERY_OVERFLOW("Query overflow"), 
 		UNSUPPORTED("Unsupported command"),
 		TIMEOUT("Packet timeout"),
-		UNKNOWN("Unknown code")
+		UNKNOWN("Unknown code"),
+		CANCEL("Cancel Build")
 		;
 		
 		private final String message;
@@ -30,22 +31,33 @@ public class PacketResponse {
 		
 		public String getMessage() { return message; }
 		
-		public static ResponseCode fromInt(int value) {
+		// TODO: This allows us to respond to both pre and post 2.92 commands.
+		public static ResponseCode fromInt(int value) { 
 			switch(value) {
-			case 0:
+			case 0x0:
+			case 0x80:
 				return GENERIC_ERROR;
-			case 1:
+			case 0x1:
+			case 0x81:
 				return OK;
-			case 2:
+			case 0x2:
+			case 0x82:
 				return BUFFER_OVERFLOW;
-			case 3:
+			case 0x3:
+			case 0x83:
 				return CRC_MISMATCH;
-			case 4:
+			case 0x4:
+			case 0x84:
 				return QUERY_OVERFLOW;
-			case 5:
+			case 0x5:
+			case 0x85:
 				return UNSUPPORTED;
-			case 6:
+			case 0x6:
+			case 0x86:
 				return OK; // more packets expected?
+			case 0x09:
+			case 0x89:
+				return CANCEL;
 			case 127:
 				return TIMEOUT;
 			}
@@ -138,7 +150,7 @@ public class PacketResponse {
 
 	public ResponseCode getResponseCode() {
 		if (payload != null && payload.length > 0)
-			return ResponseCode.fromInt(payload[0]);
+			return ResponseCode.fromInt(payload[0] & 0xff);
 		else return ResponseCode.GENERIC_ERROR;
 	}
 

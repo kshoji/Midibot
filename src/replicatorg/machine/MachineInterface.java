@@ -2,9 +2,11 @@ package replicatorg.machine;
 
 import replicatorg.drivers.Driver;
 import replicatorg.drivers.DriverQueryInterface;
+import replicatorg.drivers.SimulationDriver;
 import replicatorg.drivers.commands.DriverCommand;
 import replicatorg.machine.Machine.JobTarget;
 import replicatorg.machine.model.MachineModel;
+import replicatorg.machine.model.MachineType;
 import replicatorg.model.GCodeSource;
 
 
@@ -24,13 +26,9 @@ import replicatorg.model.GCodeSource;
  */
 
 public interface MachineInterface {
-		/** Get the driver instance. Note that this interface will not be supported in the future; instead use getDriverQueryInterface() **/
-	@Deprecated
-	public Driver getDriver();
-	
 	/** Get an interface to use to query the driver **/
 	public DriverQueryInterface getDriverQueryInterface();
-
+	
 	/** Dispose of this machine controller **/
 	public void dispose();
 	
@@ -52,11 +50,11 @@ public interface MachineInterface {
 	 */
 	public MachineModel getModel();
 	
-	
 	public String getMachineName();
-	
+	public MachineType getMachineType();
 	
 	// Job level commands
+	
 	
 	/** Estimate the time required to process a job
 	 * @param source GCode source of job to estimate
@@ -71,7 +69,7 @@ public interface MachineInterface {
 	 */
 	public void simulate(GCodeSource source);
 	
-	public boolean buildDirect(GCodeSource source);
+	public void buildDirect(GCodeSource source);
 	public boolean buildRemote(String remoteName);
 	public void buildToFile(GCodeSource source, String path);
 	public void upload(GCodeSource source, String remoteName);
@@ -96,4 +94,9 @@ public interface MachineInterface {
 	public boolean isConnected();
 	public boolean isSimulating();
 	public boolean isInteractiveTarget();
+
+	/** Get the driver instance. Note that this interface will not be supported in the future; instead use getDriverQueryInterface() **/
+	@Deprecated
+	public Driver getDriver();
+
 }

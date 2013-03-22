@@ -30,6 +30,29 @@ import org.w3c.dom.Node;
 import replicatorg.app.Base;
 import replicatorg.app.tools.XML;
 
+enum ToolheadType {
+	UNKNOWN(1, "Unknown" ),
+	MK1(1, "Mk1" ),
+	MK2(2,"Mk2"),
+	MK3(3, "Mk3"),
+	MK4(4, "Mk4"),
+	MK5(5, "Mk5"),
+	FROSTRUDER(6, "Frostruder" ),
+	UNICORN(6, "Unicorn" ),
+	MK6(7, "Mk6" ),
+	MK6A(8, "Mk7a" ),
+	MK7(9, "Mk7" ),
+	MK8(10, "Mk8" );
+	
+	public String guiName;
+	public int number;
+	
+	ToolheadType(int number, String name) {
+		this.guiName = name;
+		this.number = number;
+	}
+}
+
 public class ToolModel
 {
 	public static int MOTOR_CLOCKWISE = 1;
@@ -43,23 +66,27 @@ public class ToolModel
 	
 	//descriptive stuff
 	protected String name;
-	protected String type;
+	protected String toolClass;
 	protected String material;
 	protected int index;
+	protected ToolheadType type = ToolheadType.UNKNOWN;
 
 	//motor stuff
 	protected boolean motorEnabled;
 	protected int motorDirection;
 	protected double motorSpeedRPM;
 	protected int motorSpeedPWM;
+
 	protected double motorSpeedReadingRPM;
 	protected int motorSpeedReadingPWM;
+
 	protected boolean motorUsesRelay = false;
 	protected boolean motorHasEncoder;
 	protected int motorEncoderPPR;
 	protected boolean motorIsStepper;
-	protected double motorSteps; // motor steps per full rotation
-	protected String motorStepperAxis;    // Stepper axis this motor is connected to
+	protected double motorSteps;		// motor steps per full rotation
+	
+	protected AxisId motorStepperAxis;	// Stepper axis this motor is connected to
 
 	//spindle stuff
 	protected boolean spindleEnabled;
@@ -99,6 +126,10 @@ public class ToolModel
 	protected boolean hasFan = false;
 	protected boolean hasValve = false;
 	protected boolean hasCollet = false;
+	protected boolean alwaysReadHBP = false;
+	
+	protected boolean automatedBuildPlatformEnabled;
+	
 
 	/*************************************
 	*  Creates the model object.
@@ -120,8 +151,9 @@ public class ToolModel
 	{
 		//default information
 		name = "Generic Tool";
-		type = "tool";
+		toolClass = "tool";
 		material = "unknown";
+		type = ToolheadType.UNKNOWN;
 		index = 0;
 		
 		//default our spindles/motors
@@ -146,7 +178,7 @@ public class ToolModel
 			return false;
 		}
 		if (Boolean.parseBoolean(s)) {
-			return true;
+			return true; 
 		}
 		try {
 			if (Integer.parseInt(s) == 1) {
@@ -164,9 +196,9 @@ public class ToolModel
 		
 		//load our name.
 		String n = XML.getAttributeValue(xml, "name");
-		if (n != null)
+		if (n != null){
 			name = n;
-		
+		}
 		//load our index.
 		n = XML.getAttributeValue(xml, "index");
 		if (n != null)
@@ -175,16 +207,20 @@ public class ToolModel
 		//load our type.
 		n = XML.getAttributeValue(xml, "type");
 		if (n != null)
-			type = n;
+			toolClass = n;
 		
 		//load our material
 		n = XML.getAttributeValue(xml, "material");
 		if (n != null)
 			material = n;
 		
+		n = XML.getAttributeValue(xml, "log_hbp");
+		if (n != null && isTrueOrOne(n) )
+			alwaysReadHBP = true;
+
 		//our various capabilities
 		n = XML.getAttributeValue(xml, "motor");
-		if (isTrueOrOne(n))
+		if (n != null && isTrueOrOne(n))
 		{
 			hasMotor = true;
 
@@ -210,7 +246,7 @@ public class ToolModel
 			n = XML.getAttributeValue(xml, "stepper_axis");
 			try{
 				if (n != null && n.length() > 0) {
-					motorStepperAxis = n;
+					motorStepperAxis = AxisId.getAxis(n);
 				}
 			} catch (Exception e) {} // ignore parse errors.
 			
@@ -308,7 +344,8 @@ public class ToolModel
 			result += "hasAutomatedPlatform, ";
 		if (motorIsStepper) {
 			result += "motorIsStepper, ";
-			result += "motorStepperAxis: " + motorStepperAxis + ", ";
+			if(motorStepperAxis != null ) result += "motorStepperAxis: " + motorStepperAxis.name() + ", ";
+			else  result += "motorStepperAxis: (null), ";
 			result += "motorSteps: " + motorSteps + ", ";
 		}
 	}
@@ -332,9 +369,16 @@ public class ToolModel
 		return index;
 	}
 	
+	public String getToolClass()
+	{
+		return toolClass;
+	}
+
+	/* use Get Class instead */
+	@Deprecated
 	public String getType()
 	{
-		return type;
+		return getToolClass();
 	}
 	
 	public int getToolStatus()
@@ -360,11 +404,19 @@ public class ToolModel
 		return motorDirection;
 	}
 	
+	/**
+	 *  Motor speed *read from the XML*
+	 * @return
+	 */
 	public void setMotorSpeedRPM(double rpm)
 	{
 		motorSpeedRPM = rpm;
 	}
 
+	/**
+	 *  Motor speed *read from the XML*
+	 * @return
+	 */
 	public void setMotorSpeedPWM(int pwm)
 	{
 		motorSpeedPWM = pwm;
@@ -383,31 +435,52 @@ public class ToolModel
 		return motorSteps;
 	}
 
+	/**
+	 *  Motor speed *read from the XML*
+	 * @return
+	 */
 	public int getMotorSpeedPWM()
 	{
 		return motorSpeedPWM;
 	}
 	
+
 	public boolean getMotorUsesRelay()
 	{
 		return motorUsesRelay;
 	}
 	
+	/**
+	 *  Motor speed *read from the device*
+	 * @param rpm
+	 */
 	public void setMotorSpeedReadingRPM(double rpm)
 	{
 		motorSpeedReadingRPM = rpm;
 	}
 	
+	/**
+	 *  Motor speed *read from the device*
+	 * @param rpm
+	 */	
 	public void setMotorSpeedReadingPWM(int pwm)
 	{
 		motorSpeedReadingPWM = pwm;
 	}
 	
+	/**
+	 *  Motor speed *read from the device*
+	 * @param rpm
+	 */	
 	public double getMotorSpeedReadingRPM()
 	{
 		return motorSpeedReadingRPM;
 	}
 
+	/**
+	 *  Motor speed *read from the device*
+	 * @param rpm
+	 */	
 	public int getMotorSpeedReadingPWM()
 	{
 		return motorSpeedReadingPWM;
@@ -447,7 +520,14 @@ public class ToolModel
 	 * 
 	 * @return null if motorstepperaxis wasn't specified. The axis identifier otherwise
 	 */
-	public String getMotorStepperAxis()
+	public String getMotorStepperAxisName()
+	{
+		if (motorStepperAxis == null)
+			return ""; 
+		return motorStepperAxis.name();
+	}
+	
+	public AxisId getMotorStepperAxis()
 	{
 		return motorStepperAxis;
 	}
@@ -634,83 +714,74 @@ public class ToolModel
 	}
 	
 	public boolean hasMistCoolant()
-	{
-		return hasMistCoolant;
-	}
+	{ return hasMistCoolant; }
 
+	public void setAutomatedBuildPlatformRunning(boolean state) {
+		automatedBuildPlatformEnabled = state;
+	}
+	public boolean isAutomatedBuildPlatformEnabled(boolean state) {
+		return automatedBuildPlatformEnabled;
+	}
+	
 	/*************************************
 	*  Fan interface functions
 	*************************************/
-	public void enableFan()
-	{
-		fanEnabled = true;
-	}
+	public void enableFan() { fanEnabled = true; }
 
-	public void disableFan()
-	{
-		fanEnabled = false;
-	}
+	public void disableFan() { fanEnabled = false; }
 	
-	public boolean isFanEnabled()
-	{
-		return fanEnabled;
-	}
+	public boolean isFanEnabled() { return fanEnabled; }
 	
-	public boolean hasFan()
-	{
-		return hasFan;
-	}
+	public boolean hasFan() { return hasFan; }
 	
+	public boolean alwaysReadBuildPlatformTemp() { return  alwaysReadHBP; }
+
 	/*************************************
 	*  Valve interface functions
 	*************************************/
-	public void openValve()
-	{
-		valveOpen = true;
-	}
+	public void openValve() { valveOpen = true; }
 	
-	public void closeValve()
-	{
-		valveOpen = false;
-	}
+	public void closeValve() { valveOpen = false; }
 	
-	public boolean isValveOpen()
-	{
-		return valveOpen;
-	}
+	public boolean isValveOpen() {return valveOpen;	}
 	
-	public boolean hasValve()
-	{
-		return hasValve;
-	}
+	public boolean hasValve() { return hasValve; }
 	
 	/*************************************
 	*  Collet interface functions
 	*************************************/
-	public void openCollet()
-	{
-		colletOpen = true;
-	}
+	public void openCollet() { colletOpen = true; }
 	
-	public void closeCollet()
-	{
-		colletOpen = false;
-	}
+	public void closeCollet() { colletOpen = false;	}
 	
-	public boolean isColletOpen()
-	{
-		return colletOpen;
-	}
+	public boolean isColletOpen() {	return colletOpen; }
 	
-	public boolean hasCollet()
-	{
-		return hasCollet;
-	}
+	public boolean hasCollet() { return hasCollet;}
 	
 	/**
-	 * Retrieve XML node. A temporary hack until we have more robust tool models.
+	 * Retrieve XML node. A temporary hack until new  tool models.
 	 */
-	public Node getXml() {
-		return xml;
+	public Node getXml() { return xml; }
+
+	// returns true of an extruder has a thermocouple (implies it has a PID)
+	public boolean hasExtruderThermocouple() {
+		return true;
 	}
+
+	
+	public boolean hasExtruderThermistor() {
+		/// Mk6/7/8 use Thermocouple
+		String nameLower = this.name.toLowerCase();
+		if( nameLower.contains("Unicorn") )
+			return false;
+		else if(nameLower.contains("mk6") || nameLower.contains("mk7") || nameLower.contains("mk8"))
+			return false;
+		//Mk1 to ? use thermistor
+		else if( nameLower.contains("mk5") || nameLower.contains("mk5") || nameLower.contains("mk3") ||nameLower.contains("mk2"))
+			return true;
+		// default to false, sice we don't know
+		return false;
+	}
+
+		
 }

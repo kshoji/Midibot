@@ -23,6 +23,7 @@
 
 package replicatorg.drivers;
 
+import java.awt.Color;
 import java.util.EnumSet;
 
 import javax.vecmath.Point3d;
@@ -140,8 +141,16 @@ public interface Driver {
 	public void updateManualControl();
 
 	public Version getMinimumVersion();
-	
+        
+  public Version getMinimumAccelerationVersion();
+
+  public Version getMinimumJettyAccelerationVersion();
+
+  public Version getMinimumAdvancedFeatureVersion();
 	public Version getPreferredVersion();
+
+	public void setBuildToFileVersion(int version);
+	public int getBuildToFileVersion();
 	
 	/**
 	 * Positioning Methods
@@ -213,12 +222,17 @@ public interface Driver {
 	/**
 	 * sets the feedrate in mm/minute
 	 */
-	public void setFeedrate(double feed);
+	public void setFeedrateMM(double feed);
 
 	/**
 	 * sets the feedrate in mm/minute
 	 */
 	public double getCurrentFeedrate();
+
+	/**
+	 * sets acceleration on or off for subsequent commands
+	 */
+	public void setAccelerationToggle(boolean on) throws RetryException;
 
 	/**
 	 * Home the given set of axes at the given feedrate.  If the feedrate is <=0, run at
@@ -249,6 +263,15 @@ public interface Driver {
 	public void disableDrives() throws RetryException;
 
 	/**
+	 * enabling/disabling our drivers for individual axes. A disabled axis is
+	 * generally able to move freely, while an enabled axis is clamped.
+	 * @throws RetryException
+	 */
+	public void enableAxes(EnumSet<AxisId> axes) throws RetryException;
+	
+	public void disableAxes(EnumSet<AxisId> axes) throws RetryException;
+	
+	/**
 	 * change our gear ratio
 	 */
 	public void changeGearRatio(int ratioIndex);
@@ -261,10 +284,12 @@ public interface Driver {
 	 * Motor interface functions
 	 **************************************************************************/
 	public void setMotorDirection(int dir);
+	public void setMotorDirection(int dir, int toolhead);
 
-	public void setMotorRPM(double rpm) throws RetryException;
+	public void setMotorRPM(double rpm, int toolhead) throws RetryException;
 
 	public void setMotorSpeedPWM(int pwm) throws RetryException;
+	public void setMotorSpeedPWM(int pwm, int toolhead) throws RetryException;
 
 	public double getMotorRPM();
 
@@ -275,14 +300,17 @@ public interface Driver {
 	 * @throws RetryException 
 	 */
 	public void enableMotor() throws RetryException;
+	public void enableMotor(int toolhead) throws RetryException;
 
 	/**
 	 * Enable motor for a fixed duration, then disable
 	 * @throws RetryException 
 	 */
 	public void enableMotor(long millis) throws RetryException;
+	public void enableMotor(long millis, int toolhead) throws RetryException;
 
 	public void disableMotor() throws RetryException;
+	public void disableMotor(int toolhead) throws RetryException;
 
 	/***************************************************************************
 	 * Spindle interface functions
@@ -307,7 +335,7 @@ public interface Driver {
 	 * @throws RetryException 
 	 **************************************************************************/
 	public void setTemperature(double temperature) throws RetryException;
-	
+	public void setTemperature(double temperature, int toolIndex) throws RetryException;
 	public void readTemperature();
 	
 	public double getTemperature();
@@ -319,6 +347,7 @@ public interface Driver {
 	 * @throws RetryException 
 	 **************************************************************************/
 	public void setPlatformTemperature(double temperature) throws RetryException;
+	public void setPlatformTemperature(double temperature, int toolIndex) throws RetryException;
 	
 	public void readPlatformTemperature();
 	
@@ -354,9 +383,19 @@ public interface Driver {
 	 * @throws RetryException 
 	 **************************************************************************/
 	public void enableFan() throws RetryException;
+	public void enableFan(int toolhead) throws RetryException;
 
 	public void disableFan() throws RetryException;
+	public void disableFan(int toolhead) throws RetryException;
 
+	
+	/***************************************************************************
+	 * abp interface functions
+	 * @throws RetryException 
+	 **************************************************************************/
+	public void setAutomatedBuildPlatformRunning(boolean state) throws RetryException;
+	public void setAutomatedBuildPlatformRunning(boolean state, int toolhead) throws RetryException;
+	
 	/***************************************************************************
 	 * Valve interface functions
 	 * @throws RetryException 
@@ -365,6 +404,26 @@ public interface Driver {
 
 	public void closeValve() throws RetryException;
 
+	/*************************************************************************
+	 * Potentiometer interface
+	 **************************************************************************/
+	public void setStepperVoltage(int stepperId, int referenceValue) throws RetryException;
+//	public void storeStepperVoltage(int stepperId, int referenceValue) throws RetryException;
+	public int getStepperVoltage(int stepperId ); 
+	
+	/*************************************************************************
+	 * LED Strip interface
+	 **************************************************************************/
+	public void setLedStrip(Color color, int effectId) throws RetryException;
+	//public Color getLedColors(int effectId);
+
+
+	/*************************************************************************
+	 * Beep Interface
+	 **************************************************************************/
+	public void sendBeep(int frequencyHz, int durationMs, int effect) throws RetryException;
+
+	
 	/***************************************************************************
 	 * Collet interface functions
 	 **************************************************************************/
@@ -398,5 +457,17 @@ public interface Driver {
 	 * Heartbeat
 	 **************************************************************************/
 	public boolean heartbeat();
+
+	/**
+	 * Reads temperatures from all extruders
+	 */
+	public void readAllTemperatures();
+
+	/**
+	 * reads temperature from all heated build platforms
+	 */
+	public void readAllPlatformTemperatures();
+	
+
 
 }

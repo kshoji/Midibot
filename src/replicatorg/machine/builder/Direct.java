@@ -8,10 +8,11 @@ import java.util.logging.Level;
 import javax.swing.JOptionPane;
 
 import replicatorg.app.Base;
-import replicatorg.app.GCodeParser;
+import replicatorg.app.gcode.GCodeParser;
 import replicatorg.drivers.Driver;
 import replicatorg.drivers.DriverQueryInterface;
 import replicatorg.drivers.RetryException;
+import replicatorg.drivers.SimulationDriver;
 import replicatorg.drivers.StopException;
 import replicatorg.drivers.commands.DriverCommand;
 import replicatorg.machine.Machine.JobTarget;
@@ -42,6 +43,7 @@ public class Direct implements MachineBuilder{
 	Queue<DriverCommand> driverQueue;
 	boolean building;		// True if we are running to the machine
 	
+	SimulationDriver simulator;
 	GCodeParser simulationParser;
 	Queue<DriverCommand> simulatorQueue;
 	boolean simulating;		// True if we are running to the simulator
@@ -50,7 +52,7 @@ public class Direct implements MachineBuilder{
 	
 	State state;
 	
-	public Direct(Driver driver, GCodeSource source) {
+	public Direct(Driver driver, SimulationDriver simulator, GCodeSource source) {
 		this.driver = driver;
 		this.source = source;
 	
@@ -71,6 +73,21 @@ public class Direct implements MachineBuilder{
 			driverQueue = new LinkedList< DriverCommand >();
 			
 			parser.init((DriverQueryInterface) driver);
+		}
+		
+		if (simulator == null) {
+			simulating = false;
+		} else {
+			simulating = true;
+			
+			this.simulator = simulator;
+			// And the one for the simulator
+			simulationParser = new GCodeParser();
+			
+			// Queue of commands that we get from the parser, and run on the driver.
+			simulatorQueue = new LinkedList< DriverCommand >();
+			
+			simulationParser.init((DriverQueryInterface) simulator);
 		}
 		
 		simulating = false;
@@ -123,14 +140,13 @@ public class Direct implements MachineBuilder{
 		// Simulate the command. Just run everything against the simulator, and ignore errors.
 		if (retry == false && simulating) {
 			for (DriverCommand command : simulatorQueue) {
-				// TODO
-				// try {
-				// command.run(simulator);
-				// } catch (RetryException r) {
-				// // Ignore.
-				// } catch (StopException e) {
-				// // TODO: stop the simulator at this point?
-				// }
+				try {
+					command.run(simulator);
+				} catch (RetryException r) {
+					// Ignore.
+				} catch (StopException e) {
+					// TODO: stop the simulator at this point?
+				}
 			}
 			simulatorQueue.clear();
 		}

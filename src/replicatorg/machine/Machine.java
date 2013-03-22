@@ -20,21 +20,33 @@
 package replicatorg.machine;
 
 import java.util.LinkedList;
+import java.util.Map;
 import java.util.Queue;
+import java.util.TreeMap;
+import java.util.concurrent.Executors;
+import java.util.logging.Level;
 
 import org.w3c.dom.Node;
 
 import replicatorg.app.Base;
-import replicatorg.app.GCodeParser;
+import replicatorg.app.gcode.GCodeCommand;
+import replicatorg.app.gcode.GCodeEnumeration;
+import replicatorg.app.gcode.GCodeParser;
 import replicatorg.drivers.Driver;
 import replicatorg.drivers.DriverQueryInterface;
 import replicatorg.drivers.EstimationDriver;
 import replicatorg.drivers.RetryException;
+import replicatorg.drivers.SimulationDriver;
 import replicatorg.drivers.StopException;
 import replicatorg.drivers.commands.DriverCommand;
+import replicatorg.machine.MachineState.State;
+import replicatorg.machine.model.AxisId;
+import replicatorg.machine.model.Endstops;
 import replicatorg.machine.model.MachineModel;
+import replicatorg.machine.model.MachineType;
 import replicatorg.machine.model.ToolModel;
 import replicatorg.model.GCodeSource;
+import replicatorg.util.Point5d;
 
 /**
  * The MachineController object controls a single machine. It contains a single
@@ -139,6 +151,11 @@ public class Machine implements MachineInterface {
 		machineNode = mNode;
 		machineThread = new MachineThread(this, mNode);
 		machineThread.start();
+
+		/// set initial state to propigate new machine info via callbacks
+		machineThread.scheduleRequest(new MachineCommand(
+				RequestType.DISCONNECT, null, null));
+
 	}
 
 	public boolean buildRemote(String remoteName) {
@@ -146,28 +163,50 @@ public class Machine implements MachineInterface {
 				RequestType.BUILD_REMOTE, null, remoteName));
 		return true;
 	}
-
+	
 	/**
 	 * Begin running a job.
 	 */
-	public boolean buildDirect(GCodeSource source) {
-		// start simulator
+	@Override
+	public void buildDirect(final GCodeSource source) {
 
-		// TODO: Re-enable the simulator.
-		// if (simulator != null &&
-		// Base.preferences.getBoolean("build.showSimulator",false))
-		// simulator.createWindow();
+		Runnable prepareAndStart = new Runnable(){
 
-		// estimate build time.
-		Base.logger.info("Estimating build time...");
-		estimate(source);
+			private Map<String, Integer> messages = new TreeMap<String, Integer>();
+			private boolean cancelled = false;
+			@Override
+			public void run() {
 
-		// do that build!
-		Base.logger.info("Beginning build.");
+				// start simulator
 
-		machineThread.scheduleRequest(new MachineCommand(
-				RequestType.BUILD_DIRECT, source, null));
-		return true;
+				// TODO: Re-enable the simulator.
+				// if (simulator != null &&
+				// Base.preferences.getBoolean("build.showSimulator",false))
+				// simulator.createWindow();
+				
+				Base.logger.info("Estimating build time and scanning code for errors...");
+				
+				if(Base.preferences.getBoolean("build.safetyChecks", true))
+				{
+					emitStateChange(new MachineState(State.BUILDING), "Running safety checks...");
+					
+					safetyCheck(source, messages);
+				}
+
+				if(!cancelled)
+				{
+					// estimate build time.
+					emitStateChange(new MachineState(State.BUILDING), "Estimating time to completion...");
+					estimate(source);
+					
+					// do that build!
+					Base.logger.info("Beginning build.");
+	
+					machineThread.scheduleRequest(new MachineCommand(RequestType.BUILD_DIRECT, source, null));
+				}
+			}
+		};
+		Executors.newSingleThreadExecutor().execute(prepareAndStart);
 	}
 
 	public void simulate(GCodeSource source) {
@@ -185,6 +224,142 @@ public class Machine implements MachineInterface {
 				source, null));
 	}
 
+	public void safetyCheck(GCodeSource source, Map<String, Integer> messages)
+	{
+		int nToolheads = machineThread.getModel().getTools().size();
+		Point5d maxRates = machineThread.getModel().getMaximumFeedrates();
+		
+//		BuildVolume buildVolume = new BuildVolume();
+//		buildVolume.setX(machineThread.getModel().getBuildVolume().getX()/2);
+//		buildVolume.setY(machineThread.getModel().getBuildVolume().getY()/2);
+//		buildVolume.setZ(machineThread.getModel().getBuildVolume().getZ()/2);
+		
+		GCodeCommand gcode;
+		String message, cmd, mainCode;
+		Integer lineNumber = 0;
+		
+		for(String line : source)
+		{
+			try
+			{
+				gcode = new GCodeCommand(line);
+			} //Catching every kind of exception is generally bad form,
+			//  It can hide where the problem is happening, and should be avoided
+			//  But I'm doing it anyway.
+			catch(Exception e)
+			{
+				message = "ReplicatorG can't parse '" + line +"'";
+
+				messages.put(message, lineNumber);
+				Base.logger.log(Level.SEVERE, message);
+				continue;
+			}
+
+			cmd = gcode.getCommand();
+			if(cmd.split(" ").length < 1) continue; //to avoid null index problems
+			
+			mainCode = cmd.split(" ")[0];
+
+			if(!("").equals(mainCode) && GCodeEnumeration.getGCode(mainCode) == null)
+			{
+				message = "ReplicatorG doesn't recognize GCode '" + line +"'";
+
+				messages.put(message, lineNumber);
+				Base.logger.log(Level.SEVERE, message);
+			}
+			
+			// Check for homing in the wrong direction
+			if(!homingDirectionIsSafe(gcode))
+			{
+				message = "Homing in the wrong direction for selected machine: '" + line +"'";
+
+				messages.put(message, lineNumber);
+				Base.logger.log(Level.SEVERE, message);
+			}
+
+			// we're going to check for the correct number of toolheads in each command
+			// the list of exceptions keeps growing, do we really need to do this check?
+			// maybe we should just specify the things to check, rather than the reverse
+			if(gcode.getCodeValue('T') > nToolheads-1 && gcode.getCodeValue('M') != 109
+													   && gcode.getCodeValue('M') != 106
+													   && gcode.getCodeValue('M') != 107)
+			{
+				message = "Toolheads index error! You don't have a toolhead numbered " + gcode.getCodeValue('T');
+				messages.put(message, lineNumber);
+				message = "Only the first Toolhead index error is logged. Please regenrate your GCode or manually check your gcode to correct.";
+				messages.put(message, lineNumber);
+				Base.logger.log(Level.SEVERE, message);
+				return; //TRICKY: see footnote [1]
+			}
+			if(gcode.hasCode('F'))
+			{
+				double fVal = gcode.getCodeValue('F');
+				if( (gcode.hasCode('X') && fVal > maxRates.x()) ||
+					(gcode.hasCode('Y') && fVal > maxRates.y()) ||
+// we're going to ignore this for now, since most of the time the z isn't actually moving 
+//					(gcLine.hasCode('Z') && fVal > maxRates.z()) ||  
+					(gcode.hasCode('A') && fVal > maxRates.a()) ||
+					(gcode.hasCode('B') && fVal > maxRates.b()))
+				{
+					message = "You're moving too fast! " + line +
+							 " turns at least one axis faster than it's max speed.";
+
+					messages.put(message, lineNumber);
+					Base.logger.log(Level.WARNING, message);
+				}
+				//BUGFIX! Can cause problems when used on reprap machines!
+				if (fVal < 0)
+				{
+					message = "Negative feedrate detected! '" + line +
+							 "' causes crashes in the reprap driver.";
+
+					messages.put(message, lineNumber);
+					Base.logger.log(Level.SEVERE, message);
+				}
+			}
+			
+			lineNumber++;
+		}
+	}
+	//footnote [1]:
+	/// Because this error can be thrown thousands of times in a file, and is generally a 'all wrong, or all right' error,
+	// we shortcut return on the first instance of a toolhead count error.  This avoids long timeouts before displaying errors, and avoids (literally) hundreds to 
+	// thousands of exactly the same error
+	
+	private boolean homingDirectionIsSafe(GCodeCommand gcode) {
+		Endstops xstop, ystop, zstop;
+		
+		// If it doesn't have the code, ignore it
+		xstop = ystop = zstop = Endstops.BOTH;
+		
+		if(gcode.hasCode('X'))
+			xstop = machineThread.getModel().getEndstops(AxisId.X);
+		if(gcode.hasCode('Y'))
+			ystop = machineThread.getModel().getEndstops(AxisId.Y);
+		if(gcode.hasCode('Z'))
+			zstop = machineThread.getModel().getEndstops(AxisId.Z);
+		
+		if(gcode.getCodeValue('G') == 161)
+		{
+			if((xstop != Endstops.MIN) && (xstop != Endstops.BOTH))
+				return false;
+			if((ystop != Endstops.MIN) && (ystop != Endstops.BOTH))
+				return false;
+			if((zstop != Endstops.MIN) && (zstop != Endstops.BOTH))
+				return false;
+		}
+		else if(gcode.getCodeValue('G') == 162)
+		{
+			if((xstop != Endstops.MAX) && (xstop != Endstops.BOTH))
+				return false;
+			if((ystop != Endstops.MAX) && (ystop != Endstops.BOTH))
+				return false;
+			if((zstop != Endstops.MAX) && (zstop != Endstops.BOTH))
+				return false;
+		}
+		return true;
+	}
+	
 	// TODO: Spawn a new thread to handle this for us?
 	public void estimate(GCodeSource source) {
 		if (source == null) {
@@ -194,7 +369,7 @@ public class Machine implements MachineInterface {
 		EstimationDriver estimator = new EstimationDriver();
 		// TODO: Is this correct?
 		estimator.setMachine(machineThread.getModel());
-
+		
 		Queue<DriverCommand> estimatorQueue = new LinkedList<DriverCommand>();
 
 		GCodeParser estimatorParser = new GCodeParser();
@@ -204,7 +379,7 @@ public class Machine implements MachineInterface {
 		for (String line : source) {
 			// TODO: Hooks for plugins to add estimated time?
 			estimatorParser.parse(line, estimatorQueue);
-
+			
 			for (DriverCommand command : estimatorQueue) {
 				try {
 					command.run(estimator);
@@ -227,10 +402,8 @@ public class Machine implements MachineInterface {
 		// }
 
 		machineThread.setEstimatedBuildTime(estimator.getBuildTime());
-		Base.logger
-				.info("Estimated build time is: "
-						+ EstimationDriver.getBuildTimeString(estimator
-								.getBuildTime()));
+		Base.logger.info("Estimated build time is: " + 
+					EstimationDriver.getBuildTimeString(estimator.getBuildTime()));
 	}
 
 	public DriverQueryInterface getDriverQueryInterface() {
@@ -239,6 +412,10 @@ public class Machine implements MachineInterface {
 
 	public Driver getDriver() {
 		return machineThread.getDriver();
+	}
+
+	public SimulationDriver getSimulatorDriver() {
+		return machineThread.getSimulator();
 	}
 
 	public MachineModel getModel() {
@@ -339,7 +516,6 @@ public class Machine implements MachineInterface {
 
 	protected void emitStateChange(MachineState current, String message) {
 		MachineStateChangeEvent e = new MachineStateChangeEvent(this, current, message);
-		
 		callbackHandler.schedule(e);
 	}
 
@@ -374,5 +550,11 @@ public class Machine implements MachineInterface {
 	// TODO: Drop this
 	public JobTarget getTarget() {
 		return machineThread.getTarget();
+	}
+	
+	@Override
+	public MachineType getMachineType()
+	{
+		return getModel().getMachineType();
 	}
 }

@@ -83,9 +83,19 @@ public class DriverFactory {
 		return loadClass("NullDriver");
 	}
 
-	// common driver factory.
+	/**
+	 * Build and return a driver object from driver info
+	 * @param driverName name of the driver we want to construct
+	 * @param xml 
+	 * @return a Driver object of the type specified by name.	
+	 */
 	public static Driver factory(String driverName, Node xml) {
-		if (driverName.equals("serialpassthrough"))
+	
+		if (driverName.equals("replicator2"))
+			return loadClass("replicatorg.drivers.gen3.Replicator2", xml);
+		else if (driverName.equals("mightyboard"))
+			return loadClass("replicatorg.drivers.gen3.MightyBoard", xml);
+		else if (driverName.equals("serialpassthrough"))
 			return loadClass("replicatorg.drivers.SerialPassthroughDriver", xml);
 		else if (driverName.equals("sanguino3g"))
 			return loadClass("replicatorg.drivers.gen3.Sanguino3GDriver", xml);
@@ -93,12 +103,16 @@ public class DriverFactory {
 			return loadClass("replicatorg.drivers.gen3.Makerbot4GDriver", xml);
 		else if (driverName.equals("makerbot4ga"))
 			return loadClass("replicatorg.drivers.gen3.Makerbot4GAlternateDriver", xml);
+		else if (driverName.equals("makerbot4gsailfish"))
+			return loadClass("replicatorg.drivers.gen3.Makerbot4GSailfish", xml);
 		else if (driverName.equals("reprap5d"))
 			return loadClass("replicatorg.drivers.reprap.RepRap5DDriver", xml);
 		else if (driverName.equals("simpleReprap5d"))
 			return loadClass("replicatorg.drivers.reprap.SimpleRepRap5DDriver", xml);
 		else if (driverName.equals("null"))
 			return loadClass("replicatorg.drivers.NullDriver", xml);
+		else if (driverName.equals("virtualprinter"))
+			return loadClass("replicatorg.drivers.VirtualPrinter", xml);
 		else {
 			// Load driver class 
 			Driver driver = loadClass(driverName, xml);
@@ -116,8 +130,8 @@ public class DriverFactory {
 	 */
 	private static Driver loadClass(String className, Node xml) {
 		Driver d = loadClass(className);
-		if (xml != null) { d.loadXML(xml); }
-
+		if (xml != null) 
+			{ d.loadXML(xml); }
 		return d;
 	}
 
